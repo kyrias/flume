@@ -463,13 +463,26 @@ struct Shared<T> {
 }
 
 impl<T> Shared<T> {
-    fn new(cap: Option<usize>) -> Self {
-        Self {
-            chan: ChanLock::new(Chan {
-                sending: cap.map(|cap| (cap, VecDeque::new())),
+    fn new(cap: Option<(usize, bool)>) -> Self {
+        let chan = if let Some((cap, pre_allocate)) = cap {
+            Chan {
+                sending: Some((cap, VecDeque::new())),
+                queue: if pre_allocate {
+                    VecDeque::with_capacity(cap)
+                } else {
+                    VecDeque::new()
+                },
+                waiting: VecDeque::new(),
+            }
+        } else {
+            Chan {
+                sending: None,
                 queue: VecDeque::new(),
                 waiting: VecDeque::new(),
-            }),
+            }
+        };
+        Self {
+            chan: ChanLock::new(chan),
             disconnected: AtomicBool::new(false),
             sender_count: AtomicUsize::new(1),
             receiver_count: AtomicUsize::new(1),
@@ -1134,7 +1147,7 @@ pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
 /// assert_eq!(rx.try_iter().sum::<u32>(), (1..33).sum());
 /// ```
 pub fn bounded<T>(cap: usize) -> (Sender<T>, Receiver<T>) {
-    let shared = Arc::new(Shared::new(Some(cap)));
+    let shared = Arc::new(Shared::new(Some((cap, true))));
     (
         Sender { shared: shared.clone() },
         Receiver { shared },
